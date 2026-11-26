@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Random subgraph consensus</title>
+<style>
+/* Plain desktop-app look, matching the Python (Tkinter) version. */
+:root{color-scheme:light}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:#f0f0f0;color:#000;font:14px "Segoe UI",Tahoma,Arial,sans-serif}
+.titlebar{background:#fff;border-bottom:1px solid #ccc;padding:6px 12px;font-size:13px}
+.app{display:flex;gap:0;min-height:calc(100vh - 31px)}
+.left{width:280px;flex:none;padding:10px 12px;border-right:1px solid #d0d0d0}
+.right{flex:1;padding:6px 8px;display:flex;flex-direction:column}
+h3{font-size:16px;font-weight:700;margin:4px 0 8px}
+.row{display:flex;align-items:center;gap:6px;margin:4px 0}
+.row label{width:165px;flex:none}
+input[type=text],input[type=number]{width:86px;font:14px "Segoe UI",Tahoma,sans-serif;padding:2px 4px;border:1px solid #7a7a7a;background:#fff}
+textarea{width:100%;height:80px;font:14px Consolas,"Courier New",monospace;border:1px solid #7a7a7a;padding:3px;resize:vertical}
+.chk{display:flex;align-items:center;gap:6px;margin:5px 0}
+button{font:14px "Segoe UI",Tahoma,sans-serif;background:#e1e1e1;border:1px solid #adadad;padding:4px 10px;cursor:pointer;color:#000}
+button:hover{background:#e5f1fb;border-color:#0078d7}
+.wide{width:100%;margin:4px 0}
+hr{border:0;border-top:1px solid #c8c8c8;margin:10px 0}
+.status{color:#aa3333;font-size:13px;margin-top:8px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid #adadad}
+.tabs button{border-bottom:0;background:#f0f0f0;padding:4px 10px;margin-bottom:-1px}
+.tabs button[aria-selected=true]{background:#fff;border-color:#adadad;position:relative;top:-2px;padding-bottom:6px}
+.pane{display:none;flex:1;background:#fff;border:1px solid #adadad;border-top:0;padding:6px}
+.pane.on{display:flex;flex-direction:column}
+.body{display:flex;gap:6px;flex:1;min-height:440px}
+.fig{position:relative;flex:1;min-height:420px;background:#fff}
+.fig>svg{position:absolute;inset:0;width:100%;height:100%}
+pre{margin:0;flex:1;font:13px Consolas,"Courier New",monospace;border:1px solid #c8c8c8;padding:6px;overflow:auto;background:#fff;white-space:pre}
+.nav{display:flex;align-items:center;gap:8px;padding:4px 2px 8px}
+.nav input[type=range]{width:min(500px,50vw)}
+.klab{font-size:13px;min-width:40px}
+.res-top{display:flex;gap:6px;min-height:300px}
+.tree{width:470px;flex:none;max-height:340px;overflow:auto;border:1px solid #c8c8c8}
+.tree table{border-collapse:collapse;width:100%;font-size:13px}
+.tree th{position:sticky;top:0;background:#fff;border-bottom:1px solid #c8c8c8;border-right:1px solid #e0e0e0;font-weight:400;padding:3px 6px}
+.tree td{text-align:center;padding:2px 6px}
+.tree tr:hover td{background:#e5f3ff;cursor:pointer}
+.tree tr.sel td{background:#cce8ff}
+#res pre{margin-top:6px;min-height:280px}
+@media(max-width:820px){.app{flex-direction:column}.left{width:auto;border-right:0;border-bottom:1px solid #d0d0d0}.body,.res-top{flex-direction:column}.tree{width:auto}.fig{min-height:340px}}
+</style>
+</head>
+<body>
+<div class="titlebar">Random subgraph consensus — L_k, W_k, τ, α</div>
+<div class="app">
+  <div class="left">
+    <h3>Graph G</h3>
+    <div class="row"><label for="n">Number of nodes n</label><input id="n" type="number" min="2" max="40" value="6"></div>
+    <div style="margin-top:6px">Edges (e.g. 1-2, 2-3):</div>
+    <textarea id="edges">1-2, 2-3, 2-4, 3-4, 4-5, 5-6</textarea>
+    <button class="wide" id="showG">Show G, L, W</button>
+    <hr>
+    <h3>Algorithm</h3>
+    <div class="row"><label for="eps">ε (epsilon)</label><input id="eps" type="text" value="0.2"></div>
+    <div class="row"><label for="K">Final step K (you choose)</label><input id="K" type="number" min="0" max="2000" value="50"></div>
+    <div class="row"><label for="m">Nodes picked per step</label><input id="m" type="number" min="1" value="4"></div>
+    <div class="row"><label for="seed">Random seed (blank = new)</label><input id="seed" type="text"></div>
+    <label class="chk"><input id="conn" type="checkbox" checked> Picked nodes must be connected</label>
+    <label class="chk"><input id="full" type="checkbox"> Π W_k: put each W_k back to n x n</label>
+    <label class="chk"><input id="diag" type="checkbox" checked> α: include i = j in the min</label>
+    <button class="wide" id="run" style="margin-top:10px">▶  RUN</button>
+    <button class="wide" id="copy">Copy results (CSV)</button>
+    <div class="status" id="note"></div>
+  </div>
+
+  <div class="right">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="false" data-t="orig">Original G</button>
+      <button role="tab" aria-selected="true" data-t="step">Step by step (G_k)</button>
+      <button role="tab" aria-selected="false" data-t="res">Results (products)</button>
+    </div>
+    <section class="pane" id="orig"><div class="body"><div class="fig" id="fig0"></div><pre id="text0"></pre></div></section>
+    <section class="pane on" id="step">
+      <div class="nav">
+        <button id="prev">◀ prev</button>
+        <span class="klab" id="klab">k = 0</span>
+        <input type="range" id="kr" min="0" max="0" value="0" aria-label="k">
+        <button id="next">next ▶</button>
+      </div>
+      <div class="body"><div class="fig" id="fig1"></div><pre id="text1"></pre></div>
+    </section>
+    <section class="pane" id="res">
+      <div class="res-top">
+        <div class="tree"><table><thead><tr><th>k</th><th>nodes picked</th><th>τ(W_k)</th><th>α(W_k)</th></tr></thead><tbody id="tbody"></tbody></table></div>
+        <div class="fig" id="chart" style="min-height:300px"></div>
+      </div>
+      <pre id="text2"></pre>
+    </section>
+  </div>
+</div>
+
+<script>
+{
+/*MATH*/
+const DEFAULT_EDGES = "1-2, 2-3, 2-4, 3-4, 4-5, 5-6";
+const DEFAULT_POS = [[0,1],[1.5,0.8],[3,0.3],[1.2,-0.3],[2.5,-0.9],[4,-0.9]];
+
+function parseEdges(text, n){
+  const set = new Map();
+  for (const tok of text.split(/[,;\n]+/)){
+    const nums = tok.match(/\d+/g); if(!nums) continue;
+    if(nums.length!==2) throw new Error(`Can't read edge "${tok.trim()}" (need two node numbers)`);
+    let u=+nums[0]-1, v=+nums[1]-1;
+    if(u<0||v<0||u>=n||v>=n) throw new Error(`Edge "${tok.trim()}" uses a node outside 1..${n}`);
+    if(u===v) throw new Error(`Self-loop "${tok.trim()}" not allowed`);
+    if(u>v)[u,v]=[v,u]; set.set(u+'-'+v,[u,v]);
+  }
+  return [...set.values()].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+}
+const zeros=n=>Array.from({length:n},()=>new Array(n).fill(0));
+const eye=n=>{const M=zeros(n);for(let i=0;i<n;i++)M[i][i]=1;return M};
+function laplacian(n, edges, active){
+  const L=zeros(n), act=active?new Set(active):null;
+  for(const [u,v] of edges) if(!act||(act.has(u)&&act.has(v))){L[u][u]++;L[v][v]++;L[u][v]--;L[v][u]--}
+  return L;
+}
+function matmul(A,B){const n=A.length,C=zeros(n);for(let i=0;i<n;i++)for(let k=0;k<n;k++){const a=A[i][k];if(a)for(let j=0;j<n;j++)C[i][j]+=a*B[k][j]}return C}
+function tau(W){const n=W.length;if(n<2)return 0;let m=0;
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){let s=0;for(let l=0;l<n;l++)s+=Math.abs(W[i][l]-W[j][l]);m=Math.max(m,s/2)}return m}
+function alpha(W,diag){const n=W.length;let m=Infinity;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){if(!diag&&i===j&&n>1)continue;let s=0;for(let l=0;l<n;l++)s+=W[i][l]*W[j][l];if(s<m)m=s}return m}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function pick(rng,n,m){const a=[...Array(n).keys()];for(let i=0;i<m;i++){const j=i+Math.floor(rng()*(n-i));[a[i],a[j]]=[a[j],a[i]]}return a.slice(0,m).sort((x,y)=>x-y)}
+function pickValid(rng,n,edges,m,conn){
+  const adj=Array.from({length:n},()=>new Set());
+  for(const [u,v] of edges){adj[u].add(v);adj[v].add(u)}
+  for(let t=0;t<20000;t++){
+    const a=pick(rng,n,m), set=new Set(a);
+    if(!a.every(v=>[...adj[v]].some(w=>set.has(w))))continue;
+    if(conn){const seen=new Set([a[0]]),st=[a[0]];while(st.length){const v=st.pop();for(const w of adj[v])if(set.has(w)&&!seen.has(w)){seen.add(w);st.push(w)}}if(seen.size!==a.length)continue}
+    return a;
+  }
+  throw new Error(`Couldn't find ${m} ${conn?'connected ':''}nodes where every node has an edge to another picked node. Try a different number of nodes per step.`);
+}
+function runAlgorithm(n,edges,eps,K,m,seed,diag,full,conn){
+  const rng=mulberry32(seed), Im=eye(m), steps=[];
+  for(let k=0;k<=K;k++){
+    const active=pickValid(rng,n,edges,m,conn);
+    const Lf=laplacian(n,edges,active), L=active.map(i=>active.map(j=>Lf[i][j]));
+    const W=Im.map((r,i)=>r.map((x,j)=>x-eps*L[i][j]));
+    steps.push({k,active,L,W,tau:tau(W),alpha:alpha(W,diag)});
+  }
+  let P=eye(full?n:m);
+  for(const s of steps){
+    let M=s.W;
+    if(full){M=eye(n);s.active.forEach((a,i)=>s.active.forEach((b,j)=>{M[a][b]=s.W[i][j]}))}
+    P=matmul(M,P);
+  }
+  return {steps,full,prodTau:steps.reduce((p,s)=>p*s.tau,1),prodAlpha:steps.reduce((p,s)=>p*s.alpha,1),tauP:tau(P),alphaP:alpha(P,diag),P};
+}
+/*ENDMATH*/
+
+const $=id=>document.getElementById(id);
+const fmt=x=>{if(x!==x)return"undefined";if(x===0||Math.abs(x)<1e-15)return"0";return(+x.toPrecision(6)).toString().replace(/e\+?/,"e")};
+let state=null,pos=null,n=6,edges=[];
+
+function fmtMatrix(M,d,labels){
+  const k=M.length;labels=labels||M.map((_,i)=>String(i+1));
+  const w=Math.max(d+4,5),pad=(s,l)=>String(s).padStart(l);
+  const rows=[" ".repeat(4)+labels.map(l=>pad(l,w)).join("")];
+  for(let i=0;i<k;i++){
+    rows.push(pad(labels[i],3)+" "+M[i].map(x=>{if(Math.abs(x)<10**(-d-1))x=0;return pad(x.toFixed(d),w)}).join(""));
+  }
+  return rows.join("\n");
+}
+function positions(n,edges){
+  if(n===6&&JSON.stringify(edges)===JSON.stringify(parseEdges(DEFAULT_EDGES,6)))return DEFAULT_POS;
+  return Array.from({length:n},(_,i)=>{const a=-Math.PI/2+2*Math.PI*i/n;return[Math.cos(a),-Math.sin(a)]});
+}
+function drawGraph(box,active,title){
+  const W=box.clientWidth,H=box.clientHeight,act=new Set(active);
+  const xs=pos.map(p=>p[0]),ys=pos.map(p=>p[1]);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  const pad=50,top=60,sc=Math.min((W-2*pad)/((x1-x0)||1),(H-pad-top)/((y1-y0)||1));
+  const ox=(W-(x1-x0)*sc)/2,oy=top+(H-top-pad-(y1-y0)*sc)/2;
+  const P=pos.map(([x,y])=>[ox+(x-x0)*sc,oy+(y1-y)*sc]);
+  const r=Math.max(13,Math.min(22,sc*0.15));
+  const ed=edges.map(([u,v])=>{const on=act.has(u)&&act.has(v);
+    return `<line x1="${P[u][0]}" y1="${P[u][1]}" x2="${P[v][0]}" y2="${P[v][1]}" stroke="${on?'#1f4e8c':'#cccccc'}" stroke-width="${on?3:1.3}" ${on?'':'stroke-dasharray="5 4"'}/>`}).join('');
+  const nd=P.map(([x,y],i)=>{const on=act.has(i);
+    return `<circle cx="${x}" cy="${y}" r="${r}" fill="${on?'#f4a742':'#fff'}" stroke="${on?'#333':'#bbb'}" stroke-width="1.8"/><text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-family="DejaVu Sans,Arial,sans-serif" font-weight="700" font-size="${r*0.95}" fill="${on?'#000':'#aaa'}">${i+1}</text>`}).join('');
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}"><text x="${W/2}" y="34" text-anchor="middle" font-family="DejaVu Sans,Arial,sans-serif" font-size="15">${title}</text>${ed}${nd}</svg>`;
+}
+function readInputs(){
+  n=parseInt($('n').value,10);
+  if(!(n>=2&&n<=40))throw new Error('n must be between 2 and 40');
+  edges=parseEdges($('edges').value,n);
+  const eps=parseFloat($('eps').value);if(!isFinite(eps))throw new Error('ε must be a number');
+  const K=parseInt($('K').value,10);if(!(K>=0&&K<=2000))throw new Error('K must be between 0 and 2000');
+  const m=parseInt($('m').value,10);if(!(m>=1&&m<=n))throw new Error(`Nodes per step must be between 1 and n = ${n}`);
+  const st=$('seed').value.trim();const seed=st===''?Math.floor(Math.random()*1e9):parseInt(st,10);
+  if(!isFinite(seed))throw new Error('Seed must be a whole number');
+  return{eps,K,m,seed};
+}
+function epsNote(eps){
+  const d=Math.max(0,...laplacian(n,edges).map((r,i)=>r[i]));
+  return d>0&&eps>1/d?`Note: ε = ${eps} > 1/max degree = ${fmt(1/d)}, so W can have negative entries (not stochastic).`:'';
+}
+function showOriginal(){
+  let eps;
+  try{n=parseInt($('n').value,10);edges=parseEdges($('edges').value,n);eps=parseFloat($('eps').value)}catch(e){$('note').textContent=e.message;return}
+  pos=positions(n,edges);
+  drawGraph($('fig0'),[...Array(n).keys()],'G (original graph)');
+  const L=laplacian(n,edges),W=eye(n).map((r,i)=>r.map((x,j)=>x-eps*L[i][j]));
+  $('text0').textContent=`Edges: ${edges.map(([u,v])=>`${u+1}-${v+1}`).join(', ')}\n\nL =\n${fmtMatrix(L,0)}\n\nW = I - ε L   (ε = ${eps})\n${fmtMatrix(W,4)}\n\nτ(W) = ${fmt(tau(W))}\nα(W) = ${fmt(alpha(W,$('diag').checked))}\n`;
+  $('note').textContent=epsNote(eps);
+}
+function showStep(){
+  if(!state)return;
+  const k=+$('kr').value,s=state.steps[k],act=new Set(s.active);
+  const nodes=s.active.map(i=>i+1).join(', '),lab=s.active.map(i=>String(i+1));
+  $('klab').textContent=`k = ${k}`;
+  drawGraph($('fig1'),s.active,`G_${k}  (nodes ${nodes})`);
+  const sub=edges.filter(([u,v])=>act.has(u)&&act.has(v)).map(([u,v])=>`${u+1}-${v+1}`).join(', ')||'(none)';
+  $('text1').textContent=`k = ${k}\nNodes picked: ${nodes}\nEdges of G_${k}: ${sub}\n\nL_${k}  (${lab.length} x ${lab.length}, rows/cols = nodes ${nodes}) =\n${fmtMatrix(s.L,0,lab)}\n\nW_${k} = I - ε L_${k}   (ε = ${state.eps})\n${fmtMatrix(s.W,4,lab)}\n\nτ(W_${k}) = ${fmt(s.tau)}\nα(W_${k}) = ${fmt(s.alpha)}\n`;
+  document.querySelectorAll('#tbody tr').forEach(tr=>tr.classList.toggle('sel',+tr.dataset.k===k));
+}
+function drawChart(){
+  if(!state)return;
+  const box=$('chart'),W=box.clientWidth,H=box.clientHeight,st=state.steps,K=st.length-1;
+  const vals=st.flatMap(s=>[s.tau,s.alpha]);const lo=Math.min(0,...vals),hi=Math.max(1,...vals);
+  const l=46,r=14,t=12,b=40,X=k=>l+(K?k/K:0.5)*(W-l-r),Y=v=>t+(hi-v)/(hi-lo)*(H-t-b);
+  const yt=[0,0.2,0.4,0.6,0.8,1].filter(v=>v>=lo&&v<=hi);
+  const step=K<=10?1:K<=50?10:K<=200?50:Math.ceil(K/5/100)*100,xt=[];for(let k=0;k<=K;k+=step)xt.push(k);
+  const g=yt.map(v=>`<line x1="${l}" x2="${W-r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#ddd"/><text x="${l-6}" y="${Y(v)}" text-anchor="end" dominant-baseline="central" font-size="11">${v.toFixed(1)}</text>`).join('')
+   +xt.map(k=>`<line x1="${X(k)}" x2="${X(k)}" y1="${t}" y2="${H-b}" stroke="#ddd"/><text x="${X(k)}" y="${H-b+15}" text-anchor="middle" font-size="11">${k}</text>`).join('');
+  const line=(key,c,mk)=>`<polyline fill="none" stroke="${c}" stroke-width="1.5" points="${st.map(s=>`${X(s.k)},${Y(s[key])}`).join(' ')}"/>`+st.map(s=>mk==='o'?`<circle cx="${X(s.k)}" cy="${Y(s[key])}" r="2.6" fill="${c}"/>`:`<rect x="${X(s.k)-2.4}" y="${Y(s[key])-2.4}" width="4.8" height="4.8" fill="${c}"/>`).join('');
+  const ly=t+(H-t-b)/2-21;
+  const lg=`<rect x="${W-r-92}" y="${ly}" width="86" height="42" fill="#fff" stroke="#ccc"/><line x1="${W-r-84}" x2="${W-r-64}" y1="${ly+12}" y2="${ly+12}" stroke="#1f77b4" stroke-width="1.5"/><text x="${W-r-58}" y="${ly+12}" dominant-baseline="central" font-size="12">τ(W_k)</text><line x1="${W-r-84}" x2="${W-r-64}" y1="${ly+30}" y2="${ly+30}" stroke="#ff7f0e" stroke-width="1.5"/><text x="${W-r-58}" y="${ly+30}" dominant-baseline="central" font-size="12">α(W_k)</text>`;
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" font-family="DejaVu Sans,Arial,sans-serif"><rect x="${l}" y="${t}" width="${W-l-r}" height="${H-t-b}" fill="none" stroke="#000"/>${g}${line('tau','#1f77b4','o')}${line('alpha','#ff7f0e','s')}<text x="${(l+W-r)/2}" y="${H-6}" text-anchor="middle" font-size="12">k</text>${lg}</svg>`;
+}
+function showResults(){
+  const S=state,K=S.steps.length-1;
+  $('tbody').innerHTML=S.steps.map(s=>`<tr data-k="${s.k}"><td>${s.k}</td><td>${s.active.map(i=>i+1).join(',')}</td><td>${fmt(s.tau)}</td><td>${fmt(s.alpha)}</td></tr>`).join('');
+  let where,check='';
+  if(S.full){where='each W_k placed at its own nodes, identity elsewhere'}
+  else{where='rows/cols = positions 1..m of each step';check=`  sanity check τ(Π W_k) ≤ Π τ(W_k):  ${S.tauP<=S.prodTau+1e-12?'✓':'✗'}\n\n`}
+  $('text2').textContent=`Steps k = 0 … ${K}  (${K+1} matrices),  P = W_${K} ··· W_1 W_0      (seed ${S.seed})\n\n  Π τ(W_k)   = ${fmt(S.prodTau)}\n  Π α(W_k)   = ${fmt(S.prodAlpha)}\n\n  τ(Π W_k)   = ${fmt(S.tauP)}\n  α(Π W_k)   = ${fmt(S.alphaP)}\n\n${check}P = Π W_k  (${S.P.length} x ${S.P.length}, ${where}) =\n${fmtMatrix(S.P,6)}\n`;
+  drawChart();
+}
+function setTab(t){
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.t===t));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===t));
+  if(t==='orig')showOriginal();if(t==='step')showStep();if(t==='res')drawChart();
+}
+function run(){
+  try{
+    const{eps,K,m,seed}=readInputs();
+    const out=runAlgorithm(n,edges,eps,K,m,seed,$('diag').checked,$('full').checked,$('conn').checked);
+    state={...out,eps,seed};pos=positions(n,edges);
+    $('kr').max=K;$('kr').value=0;
+    showOriginal();showResults();setTab('step');
+  }catch(e){$('note').textContent=e.message}
+}
+$('run').addEventListener('click',run);
+$('showG').addEventListener('click',()=>setTab('orig'));
+$('kr').addEventListener('input',showStep);
+$('prev').addEventListener('click',()=>{$('kr').value=Math.max(0,+$('kr').value-1);showStep()});
+$('next').addEventListener('click',()=>{$('kr').value=Math.min(+$('kr').max,+$('kr').value+1);showStep()});
+$('n').addEventListener('input',()=>{const v=parseInt($('n').value,10);if(v>=2)$('m').value=Math.max(1,v-2)});
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.t)));
+$('tbody').addEventListener('dblclick',e=>{const tr=e.target.closest('tr');if(tr){$('kr').value=tr.dataset.k;setTab('step')}});
+$('tbody').addEventListener('click',e=>{const tr=e.target.closest('tr');if(tr){$('kr').value=tr.dataset.k;showStep()}});
+$('copy').addEventListener('click',async()=>{
+  if(!state)return;const S=state;
+  const rows=[['k','nodes','tau(W_k)','alpha(W_k)'],...S.steps.map(s=>[s.k,s.active.map(i=>i+1).join(' '),s.tau,s.alpha]),[],['prod tau(W_k)',S.prodTau],['prod alpha(W_k)',S.prodAlpha],['tau(prod W_k)',S.tauP],['alpha(prod W_k)',S.alphaP]];
+  try{await navigator.clipboard.writeText(rows.map(r=>r.join(',')).join('\n'));$('note').textContent='Results copied. Paste them into Excel.'}catch{$('note').textContent='The browser blocked copying.'}
+});
+const ro=new ResizeObserver(()=>{if(!state)return;if($('step').classList.contains('on'))showStep();if($('res').classList.contains('on'))drawChart();if($('orig').classList.contains('on'))showOriginal()});
+ro.observe(document.querySelector('.right'));
+run();
+}
+</script>
+</body>
+</html>
